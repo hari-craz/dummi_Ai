@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Config:
-    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost:5432/dummi_ai")
+    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dummi_ai.db")
     EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
     VECTOR_DB_PATH = os.getenv("VECTOR_DB_PATH", "./vector_db/embeddings.faiss")
     FAISS_DIMENSION = int(os.getenv("FAISS_DIMENSION", 384))

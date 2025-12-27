@@ -8,8 +8,14 @@ from app.ml.recommender import HybridRecommender
 
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 
-# Initialize recommender
-recommender = HybridRecommender()
+# Lazy initialization
+recommender = None
+
+def get_recommender():
+    global recommender
+    if recommender is None:
+        recommender = HybridRecommender()
+    return recommender
 
 @router.post("/", response_model=RecommendationResponse)
 def get_recommendations(req: RecommendationRequest, db: Session = Depends(get_db)):
@@ -18,6 +24,7 @@ def get_recommendations(req: RecommendationRequest, db: Session = Depends(get_db
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
+    recommender = get_recommender()
     recommendations = recommender.recommend(
         db,
         req.user_id,

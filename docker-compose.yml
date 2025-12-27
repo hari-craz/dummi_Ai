@@ -28,7 +28,7 @@ services:
       LOG_LEVEL: INFO
       FAISS_DIMENSION: 384
     ports:
-      - "8000:8000"
+      - "8080:8000"
     depends_on:
       postgres:
         condition: service_healthy

@@ -8,11 +8,18 @@ from app.ml.recommender import HybridRecommender
 
 router = APIRouter(prefix="/training", tags=["training"])
 
-recommender = HybridRecommender()
+recommender = None
+
+def get_recommender():
+    global recommender
+    if recommender is None:
+        recommender = HybridRecommender()
+    return recommender
 
 @router.post("/train", response_model=TrainingResponse)
 def train_models(req: TrainingRequest, db: Session = Depends(get_db), background_tasks: BackgroundTasks = None):
     """Train ML models"""
+    recommender = get_recommender()
     embeddings_generated = 0
     cf_trained = False
     
@@ -40,6 +47,7 @@ def train_models(req: TrainingRequest, db: Session = Depends(get_db), background
 @router.get("/status")
 def get_training_status(db: Session = Depends(get_db)):
     """Get current model training status"""
+    recommender = get_recommender()
     vector_stats = recommender.vector_db.get_index_stats()
     cf_model = crud.get_latest_cf_model(db)
     

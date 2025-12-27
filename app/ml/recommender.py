@@ -6,6 +6,7 @@ from app.ml.vector_search import VectorDatabase
 from app.ml.collaborative_filtering import CollaborativeFiltering
 from app.db.crud import get_user, get_all_content, get_user_interactions, get_interaction_matrix
 from app.config import Config
+import json
 
 class HybridRecommender:
     def __init__(self):
@@ -90,7 +91,8 @@ class HybridRecommender:
             return []
         
         # Generate user profile embedding from interests
-        user_interests_text = ' '.join(user.interests)
+        user_interests = json.loads(user.interests)
+        user_interests_text = ' '.join(user_interests)
         user_embedding = self.embedding_manager.generate_embedding(user_interests_text)
         
         # Search for similar content
@@ -116,8 +118,8 @@ class HybridRecommender:
                 continue
             
             # Calculate interest match score
-            content_tags = set(content.tags) if content.tags else set()
-            user_interests = set(user.interests) if user.interests else set()
+            content_tags = set(json.loads(content.tags)) if content.tags else set()
+            user_interests = set(json.loads(user.interests)) if user.interests else set()
             
             if not user_interests:
                 continue
@@ -159,7 +161,7 @@ class HybridRecommender:
             text = self.embedding_manager.get_content_embedding_text({
                 'title': content.title,
                 'category': content.category,
-                'tags': content.tags,
+                'tags': json.loads(content.tags) if content.tags else [],
                 'description': content.description
             })
             content_texts.append(text)

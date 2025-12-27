@@ -2,7 +2,7 @@ import json
 import requests
 import time
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://localhost:8080"
 
 def load_sample_data():
     """Load sample data from JSON file"""

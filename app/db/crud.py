@@ -2,14 +2,15 @@ from sqlalchemy.orm import Session
 from app.models.database import User, Content, Interaction, UserPreference, CFModel
 from app.models.schemas import UserCreate, ContentCreate, InteractionCreate
 from datetime import datetime
+import json
 
 # ========== USER OPERATIONS ==========
 def create_user(db: Session, user: UserCreate):
     db_user = User(
         user_id=user.user_id,
-        interests=user.interests,
+        interests=json.dumps(user.interests),
         skill_level=user.skill_level,
-        history=[]
+        history=json.dumps([])
     )
     db.add(db_user)
     db.commit()
@@ -25,7 +26,7 @@ def get_all_users(db: Session):
 def update_user_interests(db: Session, user_id: str, interests: list):
     user = db.query(User).filter(User.user_id == user_id).first()
     if user:
-        user.interests = interests
+        user.interests = json.dumps(interests)
         user.updated_at = datetime.utcnow()
         db.commit()
     return user
@@ -33,8 +34,10 @@ def update_user_interests(db: Session, user_id: str, interests: list):
 def add_to_user_history(db: Session, user_id: str, content_id: str):
     user = get_user(db, user_id)
     if user:
-        if content_id not in user.history:
-            user.history.append(content_id)
+        history = json.loads(user.history)
+        if content_id not in history:
+            history.append(content_id)
+            user.history = json.dumps(history)
             user.updated_at = datetime.utcnow()
             db.commit()
     return user
@@ -45,7 +48,7 @@ def create_content(db: Session, content: ContentCreate):
         content_id=content.content_id,
         title=content.title,
         category=content.category,
-        tags=content.tags,
+        tags=json.dumps(content.tags),
         description=content.description,
         embedding_vector=None
     )
@@ -66,7 +69,7 @@ def get_content_by_category(db: Session, category: str):
 def update_content_embedding(db: Session, content_id: str, embedding: list):
     content = get_content(db, content_id)
     if content:
-        content.embedding_vector = embedding
+        content.embedding_vector = json.dumps(embedding)
         content.updated_at = datetime.utcnow()
         db.commit()
     return content
@@ -131,7 +134,7 @@ def get_user_preferences(db: Session, user_id: str):
 # ========== CF MODEL OPERATIONS ==========
 def save_cf_model(db: Session, model_data: dict, n_users: int, n_items: int, rmse: float = None):
     cf_model = CFModel(
-        model_data=model_data,
+        model_data=json.dumps(model_data),
         n_users=n_users,
         n_items=n_items,
         rmse=rmse

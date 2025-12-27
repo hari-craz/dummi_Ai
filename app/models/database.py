@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Float, JSON, Text, ForeignKey, create_engine
+from sqlalchemy import Column, Integer, String, DateTime, Float, Text, ForeignKey, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -13,9 +13,9 @@ class User(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(String, unique=True, index=True)
-    interests = Column(JSON)  # List of interests
+    interests = Column(Text)  # JSON string of interests
     skill_level = Column(String)  # beginner, intermediate, advanced
-    history = Column(JSON)  # List of content_ids viewed
+    history = Column(Text)  # JSON string of content_ids viewed
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -29,9 +29,9 @@ class Content(Base):
     content_id = Column(String, unique=True, index=True)
     title = Column(String)
     category = Column(String, index=True)
-    tags = Column(JSON)  # List of tags
+    tags = Column(Text)  # JSON string of tags
     description = Column(Text, nullable=True)
-    embedding_vector = Column(JSON, nullable=True)  # Stored as JSON for simplicity
+    embedding_vector = Column(Text, nullable=True)  # JSON string of embedding vector
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -66,7 +66,7 @@ class CFModel(Base):
     __tablename__ = "cf_models"
     
     id = Column(Integer, primary_key=True, index=True)
-    model_data = Column(JSON)  # Serialized CF model parameters
+    model_data = Column(Text)  # JSON string of serialized CF model parameters
     trained_at = Column(DateTime, default=datetime.utcnow)
     n_users = Column(Integer)
     n_items = Column(Integer)
