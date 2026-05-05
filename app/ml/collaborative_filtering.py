@@ -1,168 +1,134 @@
+"""
+Collaborative Filtering — Non-negative Matrix Factorization (NMF)
+for predicting user-item affinity scores.
+"""
+
+import json
 import numpy as np
 from sklearn.decomposition import NMF
-from typing import Tuple, Dict, List
-import json
+from sklearn.metrics import mean_squared_error
+from app.config import Config
+
+
+# Interaction-type to weight mapping
+INTERACTION_WEIGHTS = {
+    "like": 5.0,
+    "click": 2.0,
+    "view_time": 1.0,
+    "skip": 0.1,   # NMF requires non-negative — use a small positive instead of -1
+}
+
 
 class CollaborativeFiltering:
-    def __init__(self, n_factors: int = 50, n_epochs: int = 20, learning_rate: float = 0.01):
-        self.n_factors = n_factors
-        self.n_epochs = n_epochs
-        self.learning_rate = learning_rate
-        self.user_factors = None
-        self.item_factors = None
-        self.user_map = {}
-        self.item_map = {}
-        self.reverse_user_map = {}
-        self.reverse_item_map = {}
-    
-    def build_interaction_matrix(self, interactions: List[Tuple[str, str, str]]) -> Tuple[np.ndarray, dict, dict]:
-        """Build user-item interaction matrix from interaction data
-        interactions: [(user_id, content_id, interaction_type), ...]
-        Returns: (matrix, user_map, item_map)
+    """Train and use an NMF model for collaborative filtering predictions."""
+
+    def __init__(self):
+        self.n_factors = Config.N_FACTORS        # 50
+        self.n_epochs = Config.N_EPOCHS          # 20 (max_iter for NMF)
+        self.user_factors = None                 # (n_users, 50)
+        self.item_factors = None                 # (n_items, 50)
+        self.user_map: dict[str, int] = {}       # user_id → row index
+        self.item_map: dict[str, int] = {}       # content_id → col index
+        self.rmse: float | None = None
+
+    # ── Training ─────────────────────────────────────────────
+
+    def train(self, interactions: list):
         """
-        # Create mappings
-        unique_users = list(set(u for u, _, _ in interactions))
-        unique_items = list(set(i for _, i, _ in interactions))
-        
-        self.user_map = {uid: idx for idx, uid in enumerate(unique_users)}
-        self.item_map = {iid: idx for idx, iid in enumerate(unique_items)}
-        self.reverse_user_map = {idx: uid for uid, idx in self.user_map.items()}
-        self.reverse_item_map = {idx: iid for iid, idx in self.item_map.items()}
-        
-        # Build matrix
-        n_users = len(unique_users)
-        n_items = len(unique_items)
-        matrix = np.zeros((n_users, n_items))
-        
-        # Weight interactions
-        interaction_weights = {
-            'like': 5.0,
-            'click': 2.0,
-            'view_time': 1.0,
-            'skip': -1.0
-        }
-        
-        for user_id, item_id, interaction_type in interactions:
-            u_idx = self.user_map.get(user_id)
-            i_idx = self.item_map.get(item_id)
-            if u_idx is not None and i_idx is not None:
-                weight = interaction_weights.get(interaction_type, 1.0)
-                matrix[u_idx, i_idx] += weight
-        
-        return matrix, self.user_map, self.item_map
-    
-    def train(self, matrix: np.ndarray):
-        """Train CF model using NMF"""
-        # Initialize with small random values
-        np.random.seed(42)
-        
-        # Use sklearn's NMF for matrix factorization
-        nmf = NMF(
-            n_components=self.n_factors,
-            init='random',
+        Build user-item matrix from interaction records and factorise via NMF.
+        interactions: list of objects with user_id, content_id, interaction_type.
+        Returns self or None if not enough data.
+        """
+        if not interactions:
+            return None
+
+        # Build maps
+        users = sorted(set(i.user_id for i in interactions))
+        items = sorted(set(i.content_id for i in interactions))
+        self.user_map = {uid: idx for idx, uid in enumerate(users)}
+        self.item_map = {cid: idx for idx, cid in enumerate(items)}
+
+        n_users = len(users)
+        n_items = len(items)
+
+        if n_users < 2 or n_items < 2:
+            return None
+
+        # Build interaction matrix
+        matrix = np.zeros((n_users, n_items), dtype=np.float32)
+        for inter in interactions:
+            u = self.user_map[inter.user_id]
+            i = self.item_map[inter.content_id]
+            weight = INTERACTION_WEIGHTS.get(inter.interaction_type, 1.0)
+            matrix[u, i] += weight
+
+        # Ensure non-negative
+        matrix = np.clip(matrix, 0, None)
+
+        # NMF factorisation
+        model = NMF(
+            n_components=min(self.n_factors, min(n_users, n_items)),
+            init="random",
             random_state=42,
-            max_iter=self.n_epochs
+            max_iter=self.n_epochs * 10,  # sklearn iter ≠ epoch
+            solver="cd",
         )
-        
-        self.user_factors = nmf.fit_transform(matrix)
-        self.item_factors = nmf.components_.T
-        
-        return self.user_factors, self.item_factors
-    
-    def predict_rating(self, user_id: str, item_id: str) -> float:
-        """Predict rating for user-item pair"""
-        if self.user_factors is None or self.item_factors is None:
+        self.user_factors = model.fit_transform(matrix)
+        self.item_factors = model.components_.T  # (n_items, n_factors)
+
+        # Compute RMSE on non-zero entries
+        reconstructed = self.user_factors @ self.item_factors.T
+        mask = matrix > 0
+        if mask.sum() > 0:
+            self.rmse = float(np.sqrt(mean_squared_error(
+                matrix[mask], reconstructed[mask]
+            )))
+        else:
+            self.rmse = None
+
+        return self
+
+    # ── Prediction ───────────────────────────────────────────
+
+    def predict(self, user_id: str, content_id: str) -> float:
+        """Predict affinity score for a (user, item) pair."""
+        if (
+            self.user_factors is None
+            or user_id not in self.user_map
+            or content_id not in self.item_map
+        ):
             return 0.0
-        
-        u_idx = self.user_map.get(user_id)
-        i_idx = self.item_map.get(item_id)
-        
-        if u_idx is None or i_idx is None:
-            return 0.0
-        
-        rating = np.dot(self.user_factors[u_idx], self.item_factors[i_idx])
-        return float(rating)
-    
-    def recommend_for_user(self, user_id: str, n_recommendations: int = 10, 
-                          user_interacted_items: set = None) -> List[Tuple[str, float]]:
-        """Get top-N recommendations for a user"""
-        if self.user_factors is None or self.item_factors is None:
-            return []
-        
-        u_idx = self.user_map.get(user_id)
-        if u_idx is None:
-            return []
-        
-        # Get predicted ratings for all items
-        predictions = np.dot(self.user_factors[u_idx], self.item_factors.T)
-        
-        # Rank items
-        top_item_indices = np.argsort(predictions)[::-1]
-        
-        recommendations = []
-        if user_interacted_items is None:
-            user_interacted_items = set()
-        
-        for idx in top_item_indices:
-            item_id = self.reverse_item_map.get(idx)
-            if item_id and item_id not in user_interacted_items:
-                rating = float(predictions[idx])
-                recommendations.append((item_id, rating))
-                if len(recommendations) >= n_recommendations:
-                    break
-        
-        return recommendations
-    
-    def find_similar_users(self, user_id: str, n_similar: int = 5) -> List[Tuple[str, float]]:
-        """Find similar users based on factor vectors"""
-        if self.user_factors is None:
-            return []
-        
-        u_idx = self.user_map.get(user_id)
-        if u_idx is None:
-            return []
-        
-        user_vector = self.user_factors[u_idx]
-        
-        # Calculate cosine similarity with all users
-        similarities = []
-        for idx, other_vector in enumerate(self.user_factors):
-            if idx != u_idx:
-                sim = self._cosine_similarity(user_vector, other_vector)
-                other_user_id = self.reverse_user_map.get(idx)
-                if other_user_id:
-                    similarities.append((other_user_id, sim))
-        
-        # Return top N similar users
-        similarities.sort(key=lambda x: x[1], reverse=True)
-        return similarities[:n_similar]
-    
-    def _cosine_similarity(self, vec1: np.ndarray, vec2: np.ndarray) -> float:
-        """Calculate cosine similarity"""
-        dot_product = np.dot(vec1, vec2)
-        norm_vec1 = np.linalg.norm(vec1)
-        norm_vec2 = np.linalg.norm(vec2)
-        
-        if norm_vec1 == 0 or norm_vec2 == 0:
-            return 0.0
-        
-        return float(dot_product / (norm_vec1 * norm_vec2))
-    
+        u = self.user_map[user_id]
+        i = self.item_map[content_id]
+        return float(np.dot(self.user_factors[u], self.item_factors[i]))
+
+    def predict_all_for_user(self, user_id: str) -> dict[str, float]:
+        """Return {content_id: score} for every item for a user."""
+        if self.user_factors is None or user_id not in self.user_map:
+            return {}
+        u = self.user_map[user_id]
+        scores = self.user_factors[u] @ self.item_factors.T
+        return {cid: float(scores[idx]) for cid, idx in self.item_map.items()}
+
+    # ── Serialisation ────────────────────────────────────────
+
     def get_model_data(self) -> dict:
-        """Serialize model for storage"""
+        """Serialise the model for database storage."""
         return {
-            'user_factors': self.user_factors.tolist() if self.user_factors is not None else None,
-            'item_factors': self.item_factors.tolist() if self.item_factors is not None else None,
-            'user_map': self.user_map,
-            'item_map': self.item_map,
-            'n_factors': self.n_factors
+            "user_factors": self.user_factors.tolist(),
+            "item_factors": self.item_factors.tolist(),
+            "user_map": self.user_map,
+            "item_map": self.item_map,
+            "rmse": self.rmse,
         }
-    
+
     def load_model_data(self, data: dict):
-        """Load model from serialized data"""
-        self.user_factors = np.array(data['user_factors']) if data['user_factors'] else None
-        self.item_factors = np.array(data['item_factors']) if data['item_factors'] else None
-        self.user_map = data['user_map']
-        self.item_map = data['item_map']
-        self.reverse_user_map = {idx: uid for uid, idx in self.user_map.items()}
-        self.reverse_item_map = {idx: iid for iid, idx in self.item_map.items()}
+        """Restore model from deserialised data."""
+        if isinstance(data, str):
+            data = json.loads(data)
+        self.user_factors = np.array(data["user_factors"], dtype=np.float32)
+        self.item_factors = np.array(data["item_factors"], dtype=np.float32)
+        self.user_map = data["user_map"]
+        self.item_map = data["item_map"]
+        self.rmse = data.get("rmse")
+        return self

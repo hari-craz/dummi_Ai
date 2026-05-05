@@ -1,48 +1,48 @@
+"""
+Embedding Manager — wraps Sentence Transformers (all-MiniLM-L6-v2)
+for generating 384-dimensional text embeddings.
+"""
+
 import numpy as np
-import json
 from sentence_transformers import SentenceTransformer
 from app.config import Config
 
+
 class EmbeddingManager:
+    """Generate and compare text embeddings using a pre-trained model."""
+
     def __init__(self):
         self.model = SentenceTransformer(Config.EMBEDDING_MODEL)
-        self.dimension = self.model.get_sentence_embedding_dimension()
-    
+        self.dimension = Config.FAISS_DIMENSION  # 384
+
     def generate_embedding(self, text: str) -> np.ndarray:
-        """Generate embedding for a single text"""
-        embedding = self.model.encode(text, convert_to_numpy=True)
-        return embedding
-    
+        """Encode a single text string into a 384-dim float32 vector."""
+        return self.model.encode(text, convert_to_numpy=True).astype(np.float32)
+
     def generate_embeddings_batch(self, texts: list) -> np.ndarray:
-        """Generate embeddings for multiple texts"""
-        embeddings = self.model.encode(texts, convert_to_numpy=True, show_progress_bar=True)
-        return embeddings
-    
-    def get_content_embedding_text(self, content: dict) -> str:
-        """Create text representation of content for embedding"""
-        parts = [
-            content.get('title', ''),
-            content.get('category', ''),
-            ' '.join(content.get('tags', [])),
-            content.get('description', '')
-        ]
-        return ' '.join(filter(None, parts))
-    
-    def cosine_similarity(self, vec1: np.ndarray, vec2: np.ndarray) -> float:
-        """Calculate cosine similarity between two vectors"""
-        dot_product = np.dot(vec1, vec2)
-        norm_vec1 = np.linalg.norm(vec1)
-        norm_vec2 = np.linalg.norm(vec2)
-        
-        if norm_vec1 == 0 or norm_vec2 == 0:
+        """Encode a list of texts into an (N, 384) float32 matrix."""
+        return self.model.encode(texts, convert_to_numpy=True, show_progress_bar=True).astype(np.float32)
+
+    @staticmethod
+    def get_content_embedding_text(content) -> str:
+        """
+        Build a single text string from content metadata.
+        Used as input to the embedding model.
+        """
+        import json
+        parts = [content.title, content.category]
+        tags = json.loads(content.tags) if isinstance(content.tags, str) else content.tags
+        if tags:
+            parts.append(" ".join(tags))
+        if content.description:
+            parts.append(content.description)
+        return " ".join(parts)
+
+    @staticmethod
+    def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
+        """Compute cosine similarity between two vectors."""
+        dot = np.dot(vec1, vec2)
+        norm = np.linalg.norm(vec1) * np.linalg.norm(vec2)
+        if norm == 0:
             return 0.0
-        
-        return float(dot_product / (norm_vec1 * norm_vec2))
-    
-    def embedding_to_list(self, embedding: np.ndarray) -> list:
-        """Convert numpy array to list for storage"""
-        return embedding.tolist()
-    
-    def list_to_embedding(self, embedding_list: list) -> np.ndarray:
-        """Convert stored list back to numpy array"""
-        return np.array(embedding_list)
+        return float(dot / norm)

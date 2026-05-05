@@ -34,7 +34,7 @@ def train_models(req: TrainingRequest, db: Session = Depends(get_db), background
             cf_trained = True
             # Save model
             model_data = cf_model.get_model_data()
-            crud.save_cf_model(db, model_data, len(cf_model.user_map), len(cf_model.item_map))
+            crud.save_cf_model(db, model_data, len(cf_model.user_map), len(cf_model.item_map), rmse=cf_model.rmse)
     
     return TrainingResponse(
         status="completed",
